@@ -534,7 +534,7 @@ def get_reweighted_operations(
     description_handler: Optional[DescriptionHandler] = None,
     tensor_model: Optional[tensor_features_model.Model] = None,
     tensor_config: Optional[Dict[Text, Any]] = None,
-) -> List[operation_base.Operation]:
+  ) -> List[operation_base.Operation]:
   """Returns a list of operations with correct weights for the problem."""
   include_sparse_operations = (
       not settings.operations.limit_sparse_operations or
@@ -562,6 +562,41 @@ def get_reweighted_operations(
         multipliers,
         operation_multipliers_from_tensor_model(benchmark, tensor_model,
                                                 tensor_config, settings))
+  for operation in operations:
+    operation.weight = max(
+        1, int(round(operation.weight * multipliers.get(operation.name, 1))))
+
+  return operations
+
+
+def get_reweighted_operations_gpt (
+    benchmark: benchmark_module.Benchmark,
+    settings: settings_module.Settings,
+    description_handler: Optional[DescriptionHandler] = None,
+    tensor_model: Optional[tensor_features_model.Model] = None,
+    tensor_config: Optional[Dict[Text, Any]] = None,
+  ) -> List[operation_base.Operation]:
+  """Returns a list of operations with correct weights for the problem."""
+  include_sparse_operations = (
+      not settings.operations.limit_sparse_operations or
+      _contains_sparse(benchmark))
+  operations = all_operations.get_operations(
+      include_sparse_operations=include_sparse_operations)
+
+  operation_names = [op.name for op in operations]
+  if len(operation_names) != len(set(operation_names)):
+    raise ValueError('Operation names were not unique.')
+
+  if settings.paper_experiments.uniform_weights:
+    # Only for experiments in the PLDI paper.
+    for operation in operations:
+      operation.weight = 1
+    return operations
+
+  multipliers = {}
+
+  
+
   for operation in operations:
     operation.weight = max(
         1, int(round(operation.weight * multipliers.get(operation.name, 1))))
@@ -601,13 +636,37 @@ def run_value_search(
     print('Warning: for now, value search only uses a single example.')
 
   start_time = timeit.default_timer()
-
+  
   operations = get_reweighted_operations(
       benchmark,
       settings,
       description_handler=description_handler,
       tensor_model=tensor_model,
       tensor_config=tensor_config)
+
+  # Print the operations in order of their weight
+  '''
+  print("Reordered weights:")
+  for i, o in enumerate(sorted(operations, key=lambda a: a.weight)):
+    print("Operation ", i, ": [", o._name_cache, "], weight=", o.weight)
+  
+  ops_cpy = operations
+  # ORACLE SECTION (from ChatGPT)
+  # Adjusting weights of operations based on their relevance to stacking and reshaping tensors
+  operations[100].weight = int(operations[100].weight * 0.01)  # tf.stack(values, axis) - For stacking tensors
+  operations[100].weight += 1
+  operations[83].weight = int(operations[83].weight * 0.01)  # tf.reshape(tensor, shape) - For reshaping the stacked tensor
+  operations[83].weight += 1
+  operations[92].weight = int(operations[92].weight * 0.1)   # tf.shape(input) - To determine the shape for reshaping
+  operations[59].weight = int(operations[59].weight * 0.5)   # tf.multiply(x, y) - Possible element-wise operation with 'in3'
+  operations[1].weight = int(operations[1].weight * 0.5)    # tf.add(x, y) - Another possible element-wise operation with 'in3'
+
+  # Rest of the operations retain their original weights
+  
+  for i, o in enumerate(sorted(operations, key=lambda a: a.weight)):
+    print("Operation ", i, ": [", o._name_cache, "], weight=", o.weight)
+  ops_cpy = operations
+  '''
 
   solutions, value_set, values_by_weight, statistics = _find_solutions(
       benchmark=benchmark,

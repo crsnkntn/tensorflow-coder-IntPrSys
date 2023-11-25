@@ -1,0 +1,6 @@
+. . .
+Rank  1 : [ tf.divide(x, y) ], weight= 16
+. . .
+Rank  7 : [ tf.reduce_mean(input_tensor) ], weight= 22
+. . .
+Rank  33 : [ tf.exp(x) ], weight= 29

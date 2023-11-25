@@ -32,25 +32,24 @@ import tensorflow as tf  # pylint: disable=unused-import
 from tf_coder.value_search import colab_interface
 from tf_coder.value_search import value_search_settings as settings_module
 
+from tf_coder.benchmarks import all_benchmarks
 
 def get_problem():
   """Specifies a problem to run TF-Coder on. Edit this function!"""
   # A dict mapping input variable names to input tensors.
   inputs = {
-      'rows': [10, 20, 30],
-      'cols': [1, 2, 3, 4],
+      'in1': [[1, 2], [3, 4]],
+      'in2': [[5, 6], [7, 8]]
   }
 
   # The single desired output tensor.
-  output = [[11, 12, 13, 14],
-            [21, 22, 23, 24],
-            [31, 32, 33, 34]]
+  output = [[1, 5, 2, 6, 3, 7, 4, 8]]
 
   # A list of relevant scalar constants (if any).
   constants = []
 
   # An English description of the tensor manipulation.
-  description = 'add two vectors with broadcasting to get a matrix'
+  description = 'merge two tensors then reshape them using tensor 3'
 
   return inputs, output, constants, description
 
@@ -97,7 +96,12 @@ def main(unused_argv):
   inputs, output, constants, description = get_problem()
   settings = get_settings()
 
-  run_tf_coder(inputs, output, constants, description, settings)
+  benchmarks = all_benchmarks.all_benchmarks()
+
+  for bm in benchmarks:
+    print("Searching for: ", bm.target_program)
+    run_tf_coder(bm.examples[0].inputs, bm.examples[0].output, bm.constants, bm.description, settings)
+    
 
 
 if __name__ == '__main__':
