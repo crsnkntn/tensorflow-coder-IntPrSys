@@ -568,38 +568,44 @@ def get_reweighted_operations(
 
   return operations
 
+from subprocess import run as srun
+import json
 
 def get_reweighted_operations_gpt (
     benchmark: benchmark_module.Benchmark,
-    settings: settings_module.Settings,
-    description_handler: Optional[DescriptionHandler] = None,
-    tensor_model: Optional[tensor_features_model.Model] = None,
-    tensor_config: Optional[Dict[Text, Any]] = None,
+    settings: settings_module.Settings
   ) -> List[operation_base.Operation]:
   """Returns a list of operations with correct weights for the problem."""
   include_sparse_operations = (
       not settings.operations.limit_sparse_operations or
       _contains_sparse(benchmark))
+
   operations = all_operations.get_operations(
       include_sparse_operations=include_sparse_operations)
 
-  operation_names = [op.name for op in operations]
-  if len(operation_names) != len(set(operation_names)):
-    raise ValueError('Operation names were not unique.')
+  nld = benchmark.description
+  result = srun(['sh', './nl_upgrade.sh', nld], capture_output=True, text=True)
+  print(result.stdout)
+  data = json.loads(result.stdout)
+  content_string = data['choices'][0]['message']['content']
+  print(content_string)
 
-  if settings.paper_experiments.uniform_weights:
-    # Only for experiments in the PLDI paper.
-    for operation in operations:
-      operation.weight = 1
-    return operations
+  content_string += "Here is an (input, output) example: (" + ' '.join(benchmark.examples[0].inputs) + ", " + benchmark.examples[0].output + "). "
+  content_string += " and here is a list of constants given by the user: " + benchmark.constants
+  result = srun(['sh', './test.sh', content_string], capture_output=True, text=True)
+  print(result.stdout)
+  data = json.loads(result.stdout)
+  print(data)
 
-  multipliers = {}
+  # Extract the 'content' string from the nested structure
+  content_string = data['choices'][0]['message']['content']
 
-  
+  # The 'content' itself is a JSON string, so parse it again
+  functions = json.loads(content_string)
+  print("Altering: ", functions)
 
-  for operation in operations:
-    operation.weight = max(
-        1, int(round(operation.weight * multipliers.get(operation.name, 1))))
+  for i in functions:
+      operations[i].weight = int(operations[i].weight * 0.5)
 
   return operations
 
@@ -636,37 +642,8 @@ def run_value_search(
     print('Warning: for now, value search only uses a single example.')
 
   start_time = timeit.default_timer()
-  
-  operations = get_reweighted_operations(
-      benchmark,
-      settings,
-      description_handler=description_handler,
-      tensor_model=tensor_model,
-      tensor_config=tensor_config)
 
-  # Print the operations in order of their weight
-  '''
-  print("Reordered weights:")
-  for i, o in enumerate(sorted(operations, key=lambda a: a.weight)):
-    print("Operation ", i, ": [", o._name_cache, "], weight=", o.weight)
-  
-  ops_cpy = operations
-  # ORACLE SECTION (from ChatGPT)
-  # Adjusting weights of operations based on their relevance to stacking and reshaping tensors
-  operations[100].weight = int(operations[100].weight * 0.01)  # tf.stack(values, axis) - For stacking tensors
-  operations[100].weight += 1
-  operations[83].weight = int(operations[83].weight * 0.01)  # tf.reshape(tensor, shape) - For reshaping the stacked tensor
-  operations[83].weight += 1
-  operations[92].weight = int(operations[92].weight * 0.1)   # tf.shape(input) - To determine the shape for reshaping
-  operations[59].weight = int(operations[59].weight * 0.5)   # tf.multiply(x, y) - Possible element-wise operation with 'in3'
-  operations[1].weight = int(operations[1].weight * 0.5)    # tf.add(x, y) - Another possible element-wise operation with 'in3'
-
-  # Rest of the operations retain their original weights
-  
-  for i, o in enumerate(sorted(operations, key=lambda a: a.weight)):
-    print("Operation ", i, ": [", o._name_cache, "], weight=", o.weight)
-  ops_cpy = operations
-  '''
+  operations = get_reweighted_operations_gpt(benchmark, settings)
 
   solutions, value_set, values_by_weight, statistics = _find_solutions(
       benchmark=benchmark,
@@ -728,3 +705,53 @@ def run_value_search_from_example(
       source=source)
 
   return run_value_search(benchmark, settings, **kwargs)
+
+
+def run_value_search_on_benchmark (
+    benchmark: benchmark_module.Benchmark,
+    settings: settings_module.Settings,
+    description_handler: Optional[DescriptionHandler] = None,
+    tensor_model: Optional[tensor_features_model.Model] = None,
+    tensor_config: Optional[Dict[Text, Any]] = None) -> ValueSearchResults:
+  
+  _suppress_warnings()
+  if len(benchmark.examples) > 1:
+    print('Warning: for now, value search only uses a single example.')
+
+  start_time = timeit.default_timer()
+  
+  operations = get_reweighted_operations(
+      benchmark,
+      settings,
+      description_handler=description_handler,
+      tensor_model=tensor_model,
+      tensor_config=tensor_config)
+
+  solutions, value_set, values_by_weight, statistics = _find_solutions(
+      benchmark=benchmark,
+      operations=operations,
+      start_time=start_time,
+      settings=settings)
+
+  total_time = timeit.default_timer() - start_time
+
+  if solutions:
+    print()
+    print('Solution was found in {:.1f} seconds:\n{}'.format(
+        solutions[0].time, solutions[0].expression))
+    if settings.max_solutions != 1:
+      print('Found {} solution(s) in {:.1f} seconds total.'.format(
+          len(solutions), total_time))
+  else:
+    print('Could not find solution within {} seconds.'.format(
+        min(settings.timeout, total_time)))
+  sys.stdout.flush()
+
+  return ValueSearchResults(
+      solutions=solutions,
+      total_time=total_time,
+      value_set=value_set,
+      values_by_weight=values_by_weight,
+      benchmark=benchmark,
+      settings=settings,
+      statistics=statistics)

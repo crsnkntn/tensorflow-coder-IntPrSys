@@ -27,6 +27,29 @@ from tf_coder.benchmarks import test_benchmarks
 _ALL_BENCHMARK_MODULES = [test_benchmarks, simple_benchmarks, google_benchmarks,
                           stackoverflow_benchmarks, autopandas_benchmarks]
 
+def benchmarks_sz(include_ignored=False, modules=None):
+  """Returns a list of all benchmarks.
+
+  Args:
+    include_ignored: A boolean indicating whether the search should include
+      ignored benchmarks.
+    modules: A list of module objects to inspect for benchmark functions. If
+      None, all known relevant modules are used.
+
+  Returns:
+    A list of benchmark.Benchmark objects.
+  """
+  if modules is None:
+    modules = _ALL_BENCHMARK_MODULES
+  members = sum((inspect.getmembers(benchmark_module, inspect.isfunction)
+                 for benchmark_module in modules), [])
+  n_benchmarks = 0
+  for unused_name, benchmark_function in members:
+    benchmark = benchmark_function()
+    if include_ignored or not benchmark.should_ignore:
+      n_benchmarks += 1
+  return n_benchmarks
+
 
 def all_benchmarks(include_ignored=False, modules=None):
   """Returns a list of all benchmarks.

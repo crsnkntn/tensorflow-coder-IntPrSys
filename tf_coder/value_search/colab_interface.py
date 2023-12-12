@@ -99,8 +99,8 @@ def run_value_search_from_colab(
   Returns:
     A ValueSearchResults namedtuple.
   """
-  if not WARMED_UP:
-    warm_up()
+  #if not WARMED_UP:
+    #warm_up()
 
   return value_search.run_value_search_from_example(
       inputs=inputs,
